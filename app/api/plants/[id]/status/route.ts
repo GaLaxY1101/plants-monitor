@@ -8,7 +8,7 @@ import { getUserId } from '@/lib/auth';
 // GET: Get latest status for a plant from SensorLogs
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   await connectToDb();
   const userId = await getUserId();
@@ -18,7 +18,8 @@ export async function GET(
   }
 
   try {
-    const plantId = params.id;
+    const resolvedParams = await Promise.resolve(params);
+    const plantId = resolvedParams.id;
 
     // Verify plant exists and belongs to user
     const plant = await Plant.findOne({ _id: plantId, ownerId: userId });
@@ -33,10 +34,14 @@ export async function GET(
     const latestStatus: Record<string, { value: number; unit: string; timestamp: Date }> = {};
 
     for (const sensor of sensors) {
-      const latestLog = await SensorLog.findOne({ 'metadata.sensorId': sensor._id })
-        .sort({ timestamp: -1 });
+      // Query for latest log - Mongoose handles ObjectId conversion automatically
+      const latestLog = await SensorLog.findOne({ 
+        'metadata.sensorId': sensor._id
+      })
+        .sort({ timestamp: -1 })
+        .lean();
 
-      if (latestLog) {
+      if (latestLog && latestLog.readings) {
         latestStatus[sensor.type] = {
           value: latestLog.readings.value,
           unit: latestLog.readings.unit || '',
@@ -44,6 +49,9 @@ export async function GET(
         };
       }
     }
+    
+    console.log('Sensors found:', sensors.length);
+    console.log('Latest status:', latestStatus);
 
     // Get the most recent timestamp from all readings
     const timestamps = Object.values(latestStatus).map(s => s.timestamp);
