@@ -17,6 +17,11 @@ import {
   Chip,
   CircularProgress,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
 } from '@mui/material';
 import {
   Logout,
@@ -25,6 +30,7 @@ import {
   Thermostat,
   WaterDrop,
   Grass,
+  Delete,
 } from '@mui/icons-material';
 
 interface PlantSpecies {
@@ -56,6 +62,9 @@ export default function PlantsPage() {
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [plantToDelete, setPlantToDelete] = useState<Plant | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     // Check authentication
@@ -146,6 +155,47 @@ export default function PlantsPage() {
   const getSpeciesName = (species: PlantSpecies | string): string => {
     if (typeof species === 'string') return 'Unknown';
     return species.name;
+  };
+
+  const handleDeleteClick = (plant: Plant, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent card click
+    setPlantToDelete(plant);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeletePlant = async () => {
+    if (!plantToDelete) return;
+
+    setDeleting(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      const response = await fetch(`/api/plants/${plantToDelete._id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to delete plant');
+      }
+
+      // Remove plant from local state
+      setPlants(plants.filter(p => p._id !== plantToDelete._id));
+      setDeleteDialogOpen(false);
+      setPlantToDelete(null);
+    } catch (err: any) {
+      console.error('Error deleting plant:', err);
+      alert(err.message || 'Failed to delete plant. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   if (!user) {
@@ -254,6 +304,7 @@ export default function PlantsPage() {
                     flexDirection: 'column',
                     cursor: 'pointer',
                     transition: 'transform 0.2s, box-shadow 0.2s',
+                    position: 'relative',
                     '&:hover': {
                       transform: 'translateY(-4px)',
                       boxShadow: 6,
@@ -261,6 +312,23 @@ export default function PlantsPage() {
                   }}
                   onClick={() => handlePlantClick(plant._id)}
                 >
+                  <IconButton
+                    sx={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      zIndex: 1,
+                      color: 'error.main',
+                      '&:hover': {
+                        backgroundColor: 'error.light',
+                        color: 'error.dark',
+                      },
+                    }}
+                    onClick={(e) => handleDeleteClick(plant, e)}
+                    size="small"
+                  >
+                    <Delete fontSize="small" />
+                  </IconButton>
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                       <LocalFlorist color="primary" sx={{ mr: 1 }} />
@@ -339,6 +407,46 @@ export default function PlantsPage() {
           </Box>
         )}
       </Container>
+
+      {/* Delete Plant Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => !deleting && setDeleteDialogOpen(false)}
+      >
+        <DialogTitle>Delete Plant</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete <strong>{plantToDelete?.nickname}</strong>?
+          </Typography>
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            This will permanently delete the plant, all associated sensors, and all sensor logs. This action cannot be undone.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setDeleteDialogOpen(false)} 
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeletePlant} 
+            color="error" 
+            variant="contained"
+            disabled={deleting}
+            startIcon={deleting ? undefined : <Delete />}
+          >
+            {deleting ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} color="inherit" />
+                Deleting...
+              </Box>
+            ) : (
+              'Delete'
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

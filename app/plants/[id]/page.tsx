@@ -3,6 +3,16 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import {
   Container,
   Typography,
   Box,
@@ -44,6 +54,10 @@ import {
   Sensors,
   Add,
   History,
+  Schedule,
+  Warning,
+  CheckCircle,
+  Delete,
 } from '@mui/icons-material';
 
 interface PlantSpecies {
@@ -106,6 +120,14 @@ export default function PlantDashboardPage() {
   });
   const [addingSensor, setAddingSensor] = useState(false);
   const [sensorError, setSensorError] = useState('');
+  const [graphDialogOpen, setGraphDialogOpen] = useState(false);
+  const [selectedParameter, setSelectedParameter] = useState<string | null>(null);
+  const [graphData, setGraphData] = useState<any[]>([]);
+  const [loadingGraph, setLoadingGraph] = useState(false);
+  const [predictions, setPredictions] = useState<any>(null);
+  const [loadingPredictions, setLoadingPredictions] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const SENSOR_TYPES = [
     { value: 'temperature', label: 'Temperature' },
@@ -176,6 +198,9 @@ export default function PlantDashboardPage() {
 
       // Fetch sensors for this plant
       await fetchSensors(token);
+      
+      // Fetch predictions
+      await fetchPredictions(token);
     } catch (err) {
       setError('Failed to load plant');
     } finally {
@@ -196,6 +221,25 @@ export default function PlantDashboardPage() {
       }
     } catch (err) {
       console.error('Sensors fetch exception:', err);
+    }
+  };
+
+  const fetchPredictions = async (token: string) => {
+    setLoadingPredictions(true);
+    try {
+      const response = await fetch(`/api/plants/${plantId}/predictions`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const predictionsData = await response.json();
+        setPredictions(predictionsData);
+      }
+    } catch (err) {
+      console.error('Predictions fetch exception:', err);
+    } finally {
+      setLoadingPredictions(false);
     }
   };
 
@@ -317,6 +361,192 @@ export default function PlantDashboardPage() {
     return new Date(dateString).toLocaleString();
   };
 
+  const handleViewGraph = async (parameterType: string) => {
+    setSelectedParameter(parameterType);
+    setGraphDialogOpen(true);
+    setLoadingGraph(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // Find sensors of this type for this plant
+      const sensorsOfType = sensors.filter(s => s.type === parameterType);
+      
+      if (sensorsOfType.length === 0) {
+        setGraphData([]);
+        return;
+      }
+
+      // Calculate date 3 days ago
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      const startDate = threeDaysAgo.toISOString();
+
+      // Fetch logs for all sensors of this type from the last 3 days
+      const allLogs: any[] = [];
+      for (const sensor of sensorsOfType) {
+        const response = await fetch(`/api/sensors/${sensor._id}/logs?startDate=${startDate}&limit=100`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          allLogs.push(...(data.logs || []));
+        }
+      }
+
+      // Sort by timestamp and format for chart
+      const sortedLogs = allLogs.sort((a, b) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+
+      // Limit to 72 points (last 72 data points)
+      const limitedLogs = sortedLogs.slice(-72);
+
+      // Format data for recharts - use shorter format to avoid overlap
+      const chartData = limitedLogs.map(log => {
+        const date = new Date(log.timestamp);
+        // Format: "MM/DD HH:mm" for compact display
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        const hours = date.getHours().toString().padStart(2, '0');
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        return {
+          time: `${month}/${day} ${hours}:${minutes}`,
+          timestamp: log.timestamp,
+          value: log.readings.value,
+          unit: log.readings.unit || '',
+        };
+      });
+
+      setGraphData(chartData);
+    } catch (err) {
+      console.error('Error fetching graph data:', err);
+      setGraphData([]);
+    } finally {
+      setLoadingGraph(false);
+    }
+  };
+
+  const getParameterLabel = (type: string): string => {
+    const typeMap: Record<string, string> = {
+      temperature: 'Temperature',
+      airMoisture: 'Air Moisture',
+      groundMoisture: 'Ground Moisture',
+      pressure: 'Pressure',
+      light: 'Light',
+      ph: 'pH',
+    };
+    return typeMap[type] || type;
+  };
+
+  const getParameterUnit = (type: string): string => {
+    const unitMap: Record<string, string> = {
+      temperature: '°C',
+      airMoisture: '%',
+      groundMoisture: '%',
+      pressure: 'Pa',
+      light: 'lux',
+      ph: 'pH',
+    };
+    return unitMap[type] || '';
+  };
+
+  const getPredictionForSensorType = (sensorType: string): any => {
+    if (!predictions || !predictions.predictions) return null;
+    return predictions.predictions[sensorType] || null;
+  };
+
+  const getActionLabel = (action: string, sensorType?: string): string => {
+    switch (action) {
+      case 'watering':
+        // For air moisture, use "Water air" instead of "Water the plant"
+        if (sensorType === 'airMoisture') {
+          return 'Water air';
+        }
+        return 'Water the plant';
+      case 'heating':
+        return 'Increase temperature';
+      case 'cooling':
+        return 'Cool';
+      case 'reduceWatering':
+        return 'Reduce watering';
+      default:
+        return 'No action needed';
+    }
+  };
+
+  const formatTime = (hours: number): string => {
+    if (hours < 1) {
+      const minutes = Math.round(hours * 60);
+      return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    }
+    const wholeHours = Math.floor(hours);
+    const minutes = Math.round((hours - wholeHours) * 60);
+    if (minutes === 0) {
+      return `${wholeHours} hour${wholeHours !== 1 ? 's' : ''}`;
+    }
+    return `${wholeHours}h ${minutes}m`;
+  };
+
+  const getSensorIcon = (sensorType: string) => {
+    switch (sensorType) {
+      case 'temperature':
+        return <Thermostat color="error" sx={{ fontSize: 32 }} />;
+      case 'airMoisture':
+        return <WaterDrop color="primary" sx={{ fontSize: 32 }} />;
+      case 'groundMoisture':
+        return <Grass color="success" sx={{ fontSize: 32 }} />;
+      case 'pressure':
+        return <Sensors color="secondary" sx={{ fontSize: 32 }} />;
+      case 'light':
+        return <LocalFlorist color="warning" sx={{ fontSize: 32 }} />;
+      case 'ph':
+        return <Sensors color="info" sx={{ fontSize: 32 }} />;
+      default:
+        return <Sensors sx={{ fontSize: 32 }} />;
+    }
+  };
+
+  const getIdealConditionsForSensor = (sensorType: string) => {
+    if (!speciesData?.idealConditions) return null;
+    return (speciesData.idealConditions as any)[sensorType] as { min: number; max: number } | undefined;
+  };
+
+  const handleDeletePlant = async () => {
+    setDeleting(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      const response = await fetch(`/api/plants/${plantId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to delete plant');
+      }
+
+      // Success - redirect to plants list
+      router.push('/plants');
+    } catch (err: any) {
+      console.error('Error deleting plant:', err);
+      alert(err.message || 'Failed to delete plant. Please try again.');
+    } finally {
+      setDeleting(false);
+      setDeleteDialogOpen(false);
+    }
+  };
+
   if (!user) {
     return null;
   }
@@ -406,7 +636,7 @@ export default function PlantDashboardPage() {
               )}
             </Box>
 
-            {/* Current Status Section */}
+            {/* Current Status Section with Recommendations */}
             {plantStatus && Object.keys(plantStatus).length > 0 ? (
               <Box
                 sx={{
@@ -419,119 +649,122 @@ export default function PlantDashboardPage() {
                   mb: 4,
                 }}
               >
-                {plantStatus.temperature && (
-                  <Box>
-                    <Card>
-                      <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                          <Thermostat color="error" sx={{ mr: 1, fontSize: 32 }} />
-                          <Typography variant="h6">Temperature</Typography>
-                        </Box>
-                        <Typography variant="h4" gutterBottom>
-                          {plantStatus.temperature.value}{plantStatus.temperature.unit || '°C'}
-                        </Typography>
-                        {speciesData?.idealConditions && (
-                          <>
-                            <Typography variant="body2" color="text.secondary">
-                              Ideal: {speciesData.idealConditions.temperature.min}°C - {speciesData.idealConditions.temperature.max}°C
-                            </Typography>
-                            <Chip
-                              label={
-                                plantStatus.temperature.value >= speciesData.idealConditions.temperature.min &&
-                                plantStatus.temperature.value <= speciesData.idealConditions.temperature.max
-                                  ? 'Optimal'
-                                  : 'Out of range'
-                              }
-                              color={getStatusColor(
-                                plantStatus.temperature.value,
-                                speciesData.idealConditions.temperature.min,
-                                speciesData.idealConditions.temperature.max
+                {Object.entries(plantStatus).map(([sensorType, status]) => {
+                  const prediction = getPredictionForSensorType(sensorType);
+                  const idealConditions = getIdealConditionsForSensor(sensorType);
+                  
+                  return (
+                    <Box key={sensorType}>
+                      <Card
+                        sx={{
+                          cursor: 'pointer',
+                          transition: 'transform 0.2s, box-shadow 0.2s',
+                          borderLeft: prediction && prediction.status !== 'no_data' && prediction.status !== 'no_trend' 
+                            ? `4px solid ${
+                                prediction.status === 'immediate'
+                                  ? '#f44336'
+                                  : prediction.status === 'scheduled'
+                                  ? '#ff9800'
+                                  : 'transparent'
+                              }`
+                            : 'none',
+                          '&:hover': {
+                            transform: 'translateY(-2px)',
+                            boxShadow: 4,
+                          },
+                        }}
+                        onClick={() => handleViewGraph(sensorType)}
+                      >
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              {getSensorIcon(sensorType)}
+                              <Typography variant="h6" sx={{ ml: 1 }}>
+                                {getParameterLabel(sensorType)}
+                              </Typography>
+                            </Box>
+                            {prediction && prediction.status !== 'no_data' && (
+                              <Chip
+                                label={
+                                  prediction.status === 'immediate'
+                                    ? 'Urgent'
+                                    : prediction.status === 'scheduled'
+                                    ? 'Scheduled'
+                                    : 'Monitor'
+                                }
+                                color={
+                                  prediction.status === 'immediate'
+                                    ? 'error'
+                                    : prediction.status === 'scheduled'
+                                    ? 'warning'
+                                    : 'info'
+                                }
+                                size="small"
+                                icon={prediction.status === 'immediate' ? <Warning /> : prediction.status === 'scheduled' ? <Schedule /> : <CheckCircle />}
+                              />
+                            )}
+                          </Box>
+                          <Typography variant="h4" gutterBottom>
+                            {status.value}{status.unit || getParameterUnit(sensorType)}
+                          </Typography>
+                          {idealConditions && (
+                            <>
+                              <Typography variant="body2" color="text.secondary">
+                                Ideal: {idealConditions.min}{getParameterUnit(sensorType)} - {idealConditions.max}{getParameterUnit(sensorType)}
+                              </Typography>
+                              <Chip
+                                label={
+                                  status.value >= idealConditions.min &&
+                                  status.value <= idealConditions.max
+                                    ? 'Optimal'
+                                    : 'Out of range'
+                                }
+                                color={getStatusColor(
+                                  status.value,
+                                  idealConditions.min,
+                                  idealConditions.max
+                                )}
+                                size="small"
+                                sx={{ mt: 1 }}
+                              />
+                            </>
+                          )}
+                          {prediction && prediction.status !== 'no_data' && (
+                            <Box sx={{ mt: 2 }}>
+                              {prediction.status === 'immediate' && (
+                                <Alert severity="error" sx={{ mt: 1 }}>
+                                  <Typography variant="body2" fontWeight="bold">
+                                    {getActionLabel(prediction.action, sensorType)} NOW
+                                  </Typography>
+                                </Alert>
                               )}
-                              size="small"
-                              sx={{ mt: 1 }}
-                            />
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Box>
-                )}
-
-                {plantStatus.airMoisture && (
-                  <Box>
-                    <Card>
-                      <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                          <WaterDrop color="primary" sx={{ mr: 1, fontSize: 32 }} />
-                          <Typography variant="h6">Air Moisture</Typography>
-                        </Box>
-                        <Typography variant="h4" gutterBottom>
-                          {plantStatus.airMoisture.value}{plantStatus.airMoisture.unit || '%'}
-                        </Typography>
-                        {speciesData?.idealConditions && (
-                          <>
-                            <Typography variant="body2" color="text.secondary">
-                              Ideal: {speciesData.idealConditions.airMoisture.min}% - {speciesData.idealConditions.airMoisture.max}%
-                            </Typography>
-                            <Chip
-                              label={
-                                plantStatus.airMoisture.value >= speciesData.idealConditions.airMoisture.min &&
-                                plantStatus.airMoisture.value <= speciesData.idealConditions.airMoisture.max
-                                  ? 'Optimal'
-                                  : 'Out of range'
-                              }
-                              color={getStatusColor(
-                                plantStatus.airMoisture.value,
-                                speciesData.idealConditions.airMoisture.min,
-                                speciesData.idealConditions.airMoisture.max
+                              {prediction.status === 'scheduled' && (
+                                <Alert severity="warning" sx={{ mt: 1 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Schedule fontSize="small" />
+                                    <Typography variant="body2">
+                                      {getActionLabel(prediction.action, sensorType)} in <strong>{formatTime(prediction.actionInHours)}</strong>
+                                    </Typography>
+                                  </Box>
+                                  {prediction.actionTime && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                      Recommended time: {new Date(prediction.actionTime).toLocaleString()}
+                                    </Typography>
+                                  )}
+                                </Alert>
                               )}
-                              size="small"
-                              sx={{ mt: 1 }}
-                            />
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Box>
-                )}
-
-                {plantStatus.groundMoisture && (
-                  <Box>
-                    <Card>
-                      <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                          <Grass color="success" sx={{ mr: 1, fontSize: 32 }} />
-                          <Typography variant="h6">Ground Moisture</Typography>
-                        </Box>
-                        <Typography variant="h4" gutterBottom>
-                          {plantStatus.groundMoisture.value}{plantStatus.groundMoisture.unit || '%'}
-                        </Typography>
-                        {speciesData?.idealConditions && (
-                          <>
-                            <Typography variant="body2" color="text.secondary">
-                              Ideal: {speciesData.idealConditions.groundMoisture.min}% - {speciesData.idealConditions.groundMoisture.max}%
-                            </Typography>
-                            <Chip
-                              label={
-                                plantStatus.groundMoisture.value >= speciesData.idealConditions.groundMoisture.min &&
-                                plantStatus.groundMoisture.value <= speciesData.idealConditions.groundMoisture.max
-                                  ? 'Optimal'
-                                  : 'Out of range'
-                              }
-                              color={getStatusColor(
-                                plantStatus.groundMoisture.value,
-                                speciesData.idealConditions.groundMoisture.min,
-                                speciesData.idealConditions.groundMoisture.max
+                              {prediction.trend && (
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                  Trend: {prediction.trend.hourChange > 0 ? '↑' : '↓'} {Math.abs(prediction.trend.hourChange).toFixed(3)}/hour
+                                </Typography>
                               )}
-                              size="small"
-                              sx={{ mt: 1 }}
-                            />
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </Box>
-                )}
+                            </Box>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </Box>
+                  );
+                })}
               </Box>
             ) : (
               <Paper sx={{ p: 4, textAlign: 'center' }}>
@@ -687,6 +920,76 @@ export default function PlantDashboardPage() {
           </DialogActions>
         </Dialog>
 
+        {/* Parameter Graph Dialog */}
+        <Dialog
+          open={graphDialogOpen}
+          onClose={() => setGraphDialogOpen(false)}
+          maxWidth="lg"
+          fullWidth
+        >
+          <DialogTitle>
+            {selectedParameter ? `${getParameterLabel(selectedParameter)} History` : 'Parameter History'}
+          </DialogTitle>
+          <DialogContent>
+            {loadingGraph ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : graphData.length === 0 ? (
+              <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                No historical data available for this parameter
+              </Typography>
+            ) : (
+              <Box sx={{ width: '100%', height: 500, mt: 2 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart 
+                    data={graphData}
+                    margin={{ top: 5, right: 30, left: 20, bottom: 100 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="time" 
+                      angle={-45}
+                      textAnchor="end"
+                      height={100}
+                      interval="preserveStartEnd"
+                      tick={{ fontSize: 12 }}
+                      dx={-5}
+                      dy={10}
+                    />
+                    <YAxis 
+                      label={{ 
+                        value: selectedParameter ? getParameterUnit(selectedParameter) : '', 
+                        angle: -90, 
+                        position: 'insideLeft',
+                        style: { textAnchor: 'middle' }
+                      }}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <Tooltip 
+                      formatter={(value: any) => [`${value} ${selectedParameter ? getParameterUnit(selectedParameter) : ''}`, 'Value']}
+                      labelFormatter={(label) => `Time: ${label}`}
+                    />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="value" 
+                      stroke="#1976d2" 
+                      strokeWidth={2}
+                      dot={{ r: 3 }}
+                      activeDot={{ r: 5 }}
+                      name={selectedParameter ? getParameterLabel(selectedParameter) : 'Value'}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setGraphDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
+
         {/* Sensor Logs Dialog */}
         <Dialog
           open={logsDialogOpen}
@@ -731,6 +1034,46 @@ export default function PlantDashboardPage() {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setLogsDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Delete Plant Confirmation Dialog */}
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={() => !deleting && setDeleteDialogOpen(false)}
+        >
+          <DialogTitle>Delete Plant</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to delete <strong>{plant?.nickname}</strong>?
+            </Typography>
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              This will permanently delete the plant, all associated sensors, and all sensor logs. This action cannot be undone.
+            </Alert>
+          </DialogContent>
+          <DialogActions>
+            <Button 
+              onClick={() => setDeleteDialogOpen(false)} 
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleDeletePlant} 
+              color="error" 
+              variant="contained"
+              disabled={deleting}
+              startIcon={deleting ? undefined : <Delete />}
+            >
+              {deleting ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CircularProgress size={16} color="inherit" />
+                  Deleting...
+                </Box>
+              ) : (
+                'Delete'
+              )}
+            </Button>
           </DialogActions>
         </Dialog>
       </Container>
