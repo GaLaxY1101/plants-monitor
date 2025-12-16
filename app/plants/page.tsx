@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Container,
-  Grid,
   Card,
   CardContent,
   Typography,
@@ -34,22 +33,25 @@ interface PlantSpecies {
   description?: string;
 }
 
+interface PlantStatus {
+  [key: string]: {
+    value: number;
+    unit: string;
+    timestamp: Date;
+  };
+}
+
 interface Plant {
   _id: string;
   nickname: string;
   species: PlantSpecies | string;
-  latestStatus?: {
-    temperature: number;
-    airMoisture: number;
-    groundMoisture: number;
-    timestamp: string;
-  };
   createdAt: string;
 }
 
 export default function PlantsPage() {
   const router = useRouter();
   const [plants, setPlants] = useState<Plant[]>([]);
+  const [plantStatuses, setPlantStatuses] = useState<Record<string, PlantStatus>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
@@ -87,6 +89,31 @@ export default function PlantsPage() {
 
       const data = await response.json();
       setPlants(data);
+
+      // Fetch status for each plant
+      const statusPromises = data.map(async (plant: Plant) => {
+        try {
+          const statusResponse = await fetch(`/api/plants/${plant._id}/status`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            return { plantId: plant._id, status: statusData.status || {}, timestamp: statusData.timestamp };
+          }
+        } catch (err) {
+          // Ignore errors for individual status fetches
+        }
+        return { plantId: plant._id, status: {}, timestamp: null };
+      });
+
+      const statuses = await Promise.all(statusPromises);
+      const statusMap: Record<string, PlantStatus> = {};
+      statuses.forEach(({ plantId, status }) => {
+        statusMap[plantId] = status;
+      });
+      setPlantStatuses(statusMap);
     } catch (err) {
       setError('Failed to load plants');
     } finally {
@@ -207,9 +234,19 @@ export default function PlantsPage() {
             </Button>
           </Box>
         ) : (
-          <Grid container spacing={3}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, 1fr)',
+                md: 'repeat(3, 1fr)',
+              },
+              gap: 3,
+            }}
+          >
             {plants.map((plant) => (
-              <Grid item xs={12} sm={6} md={4} key={plant._id}>
+              <Box key={plant._id}>
                 <Card
                   sx={{
                     height: '100%',
@@ -239,51 +276,67 @@ export default function PlantsPage() {
                       sx={{ mb: 2 }}
                     />
 
-                    {plant.latestStatus ? (
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="caption" color="text.secondary" gutterBottom>
-                          Current Status
-                        </Typography>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Thermostat fontSize="small" color="error" />
-                            <Typography variant="body2">
-                              {plant.latestStatus.temperature}°C
-                            </Typography>
+                    {(() => {
+                      const status = plantStatuses[plant._id];
+                      const hasStatus = status && Object.keys(status).length > 0;
+                      const latestTimestamp = hasStatus 
+                        ? new Date(Math.max(...Object.values(status).map(s => new Date(s.timestamp).getTime())))
+                        : null;
+
+                      return hasStatus ? (
+                        <Box sx={{ mt: 2 }}>
+                          <Typography variant="caption" color="text.secondary" gutterBottom>
+                            Current Status
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                            {status.temperature && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Thermostat fontSize="small" color="error" />
+                                <Typography variant="body2">
+                                  {status.temperature.value}{status.temperature.unit || '°C'}
+                                </Typography>
+                              </Box>
+                            )}
+                            {status.airMoisture && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <WaterDrop fontSize="small" color="primary" />
+                                <Typography variant="body2">
+                                  Air: {status.airMoisture.value}{status.airMoisture.unit || '%'}
+                                </Typography>
+                              </Box>
+                            )}
+                            {status.groundMoisture && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Grass fontSize="small" color="success" />
+                                <Typography variant="body2">
+                                  Ground: {status.groundMoisture.value}{status.groundMoisture.unit || '%'}
+                                </Typography>
+                              </Box>
+                            )}
+                            {latestTimestamp && (
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                                Updated: {formatDate(latestTimestamp.toISOString())}
+                              </Typography>
+                            )}
                           </Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <WaterDrop fontSize="small" color="primary" />
-                            <Typography variant="body2">
-                              Air: {plant.latestStatus.airMoisture}%
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Grass fontSize="small" color="success" />
-                            <Typography variant="body2">
-                              Ground: {plant.latestStatus.groundMoisture}%
-                            </Typography>
-                          </Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                            Updated: {formatDate(plant.latestStatus.timestamp)}
+                        </Box>
+                      ) : (
+                        <Box sx={{ mt: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            No sensor data available yet
                           </Typography>
                         </Box>
-                      </Box>
-                    ) : (
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          No sensor data available yet
-                        </Typography>
-                      </Box>
-                    )}
+                      );
+                    })()}
 
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
                       Added: {formatDate(plant.createdAt)}
                     </Typography>
                   </CardContent>
                 </Card>
-              </Grid>
+              </Box>
             ))}
-          </Grid>
+          </Box>
         )}
       </Container>
     </>

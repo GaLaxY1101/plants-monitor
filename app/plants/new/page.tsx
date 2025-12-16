@@ -15,8 +15,12 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
+  IconButton,
+  Divider,
+  Card,
+  CardContent,
 } from '@mui/material';
-import { AddCircleOutlined } from '@mui/icons-material';
+import { AddCircleOutlined, Delete, Sensors } from '@mui/icons-material';
 
 interface PlantSpecies {
   _id: string;
@@ -24,12 +28,29 @@ interface PlantSpecies {
   description?: string;
 }
 
+interface SensorForm {
+  deviceId: string;
+  name: string;
+  type: string;
+  location: string;
+}
+
+const SENSOR_TYPES = [
+  { value: 'temperature', label: 'Temperature' },
+  { value: 'airMoisture', label: 'Air Moisture' },
+  { value: 'groundMoisture', label: 'Ground Moisture' },
+  { value: 'pressure', label: 'Pressure' },
+  { value: 'light', label: 'Light' },
+  { value: 'ph', label: 'pH' },
+];
+
 export default function NewPlantPage() {
   const router = useRouter();
   const [nickname, setNickname] = useState('');
   const [speciesId, setSpeciesId] = useState('');
   const [location, setLocation] = useState('');
   const [speciesList, setSpeciesList] = useState<PlantSpecies[]>([]);
+  const [sensors, setSensors] = useState<SensorForm[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingSpecies, setLoadingSpecies] = useState(true);
   const [error, setError] = useState('');
@@ -66,6 +87,11 @@ export default function NewPlantPage() {
     }
 
     try {
+      // Filter out incomplete sensors
+      const validSensors = sensors.filter(
+        (s) => s.deviceId && s.name && s.type
+      );
+
       const response = await fetch('/api/plants', {
         method: 'POST',
         headers: {
@@ -76,6 +102,7 @@ export default function NewPlantPage() {
           nickname,
           speciesId,
           ...(location && { location }),
+          ...(validSensors.length > 0 && { sensors: validSensors }),
         }),
       });
 
@@ -93,6 +120,23 @@ export default function NewPlantPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const addSensor = () => {
+    setSensors([
+      ...sensors,
+      { deviceId: '', name: '', type: '', location: '' },
+    ]);
+  };
+
+  const removeSensor = (index: number) => {
+    setSensors(sensors.filter((_, i) => i !== index));
+  };
+
+  const updateSensor = (index: number, field: keyof SensorForm, value: string) => {
+    const updated = [...sensors];
+    updated[index] = { ...updated[index], [field]: value };
+    setSensors(updated);
   };
 
   return (
@@ -185,6 +229,93 @@ export default function NewPlantPage() {
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
               />
+
+              <Divider sx={{ my: 3 }} />
+
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Sensors fontSize="small" />
+                  Sensors (Optional)
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<AddCircleOutlined />}
+                  onClick={addSensor}
+                >
+                  Add Sensor
+                </Button>
+              </Box>
+
+              {sensors.map((sensor, index) => (
+                <Card key={index} variant="outlined" sx={{ mb: 2 }}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="subtitle2">Sensor {index + 1}</Typography>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => removeSensor(index)}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Box>
+
+                    <TextField
+                      margin="dense"
+                      required
+                      fullWidth
+                      label="Device ID"
+                      placeholder="e.g., ESP32-001"
+                      value={sensor.deviceId}
+                      onChange={(e) => updateSensor(index, 'deviceId', e.target.value)}
+                      sx={{ mb: 1 }}
+                    />
+
+                    <TextField
+                      margin="dense"
+                      required
+                      fullWidth
+                      label="Sensor Name"
+                      placeholder="e.g., Temperature Sensor"
+                      value={sensor.name}
+                      onChange={(e) => updateSensor(index, 'name', e.target.value)}
+                      sx={{ mb: 1 }}
+                    />
+
+                    <FormControl fullWidth margin="dense" required>
+                      <InputLabel>Sensor Type</InputLabel>
+                      <Select
+                        value={sensor.type}
+                        label="Sensor Type"
+                        onChange={(e) => updateSensor(index, 'type', e.target.value)}
+                      >
+                        {SENSOR_TYPES.map((type) => (
+                          <MenuItem key={type.value} value={type.value}>
+                            {type.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+
+                    <TextField
+                      margin="dense"
+                      fullWidth
+                      label="Sensor Location (Optional)"
+                      placeholder="e.g., Top of pot"
+                      value={sensor.location}
+                      onChange={(e) => updateSensor(index, 'location', e.target.value)}
+                      sx={{ mt: 1 }}
+                    />
+                  </CardContent>
+                </Card>
+              ))}
+
+              {sensors.length === 0 && (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                  No sensors added. You can add sensors later or during plant creation.
+                </Typography>
+              )}
 
               <Button
                 type="submit"

@@ -7,13 +7,8 @@ export interface IPlant extends Document {
   nickname: string;      
   ownerId: mongoose.Types.ObjectId | IUser; 
   species: mongoose.Types.ObjectId | IPlantSpecies; // Link до довідника (PlantSpecies)
-  
-  latestStatus?: {
-    temperature: number;
-    airMoisture: number;
-    groundMoisture: number;
-    timestamp: Date;
-  };
+  // Note: Sensors reference this plant via plantId (one-to-many relationship)
+  // Note: Latest status is fetched from SensorLogs, not stored here
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,12 +31,8 @@ const PlantSchema: Schema<IPlant> = new Schema({
     required: true, 
     index: true 
   },
-  latestStatus: {
-    temperature: Number,
-    airMoisture: Number,
-    groundMoisture: Number,
-    timestamp: Date,
-  },
+  // Note: Sensors reference this plant via plantId field (one-to-many)
+  // Note: Latest status is fetched from SensorLogs, not stored here
 }, {
   timestamps: true // Автоматично додає createdAt та updatedAt
 });

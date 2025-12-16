@@ -40,16 +40,18 @@ interface PlantSpecies {
   };
 }
 
+interface PlantStatus {
+  [key: string]: {
+    value: number;
+    unit: string;
+    timestamp: Date;
+  };
+}
+
 interface Plant {
   _id: string;
   nickname: string;
   species: PlantSpecies | string;
-  latestStatus?: {
-    temperature: number;
-    airMoisture: number;
-    groundMoisture: number;
-    timestamp: string;
-  };
   createdAt: string;
 }
 
@@ -59,6 +61,7 @@ export default function PlantDashboardPage() {
   const plantId = params.id as string;
 
   const [plant, setPlant] = useState<Plant | null>(null);
+  const [plantStatus, setPlantStatus] = useState<PlantStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
@@ -102,6 +105,21 @@ export default function PlantDashboardPage() {
       }
 
       setPlant(foundPlant);
+
+      // Fetch status for this plant
+      try {
+        const statusResponse = await fetch(`/api/plants/${plantId}/status`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          setPlantStatus(statusData.status || null);
+        }
+      } catch (err) {
+        // Ignore status fetch errors
+      }
     } catch (err) {
       setError('Failed to load plant');
     } finally {
@@ -219,115 +237,121 @@ export default function PlantDashboardPage() {
               )}
             </Box>
 
-            {plant.latestStatus ? (
+            {plantStatus && Object.keys(plantStatus).length > 0 ? (
               <Grid container spacing={3}>
-                <Grid item xs={12} md={4}>
-                  <Card>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        <Thermostat color="error" sx={{ mr: 1, fontSize: 32 }} />
-                        <Typography variant="h6">Temperature</Typography>
-                      </Box>
-                      <Typography variant="h4" gutterBottom>
-                        {plant.latestStatus.temperature}°C
-                      </Typography>
-                      {speciesData?.idealConditions && (
-                        <>
-                          <Typography variant="body2" color="text.secondary">
-                            Ideal: {speciesData.idealConditions.temperature.min}°C - {speciesData.idealConditions.temperature.max}°C
-                          </Typography>
-                          <Chip
-                            label={
-                              plant.latestStatus.temperature >= speciesData.idealConditions.temperature.min &&
-                              plant.latestStatus.temperature <= speciesData.idealConditions.temperature.max
-                                ? 'Optimal'
-                                : 'Out of range'
-                            }
-                            color={getStatusColor(
-                              plant.latestStatus.temperature,
-                              speciesData.idealConditions.temperature.min,
-                              speciesData.idealConditions.temperature.max
-                            )}
-                            size="small"
-                            sx={{ mt: 1 }}
-                          />
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                </Grid>
+                {plantStatus.temperature && (
+                  <Grid item xs={12} md={4}>
+                    <Card>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Thermostat color="error" sx={{ mr: 1, fontSize: 32 }} />
+                          <Typography variant="h6">Temperature</Typography>
+                        </Box>
+                        <Typography variant="h4" gutterBottom>
+                          {plantStatus.temperature.value}{plantStatus.temperature.unit || '°C'}
+                        </Typography>
+                        {speciesData?.idealConditions && (
+                          <>
+                            <Typography variant="body2" color="text.secondary">
+                              Ideal: {speciesData.idealConditions.temperature.min}°C - {speciesData.idealConditions.temperature.max}°C
+                            </Typography>
+                            <Chip
+                              label={
+                                plantStatus.temperature.value >= speciesData.idealConditions.temperature.min &&
+                                plantStatus.temperature.value <= speciesData.idealConditions.temperature.max
+                                  ? 'Optimal'
+                                  : 'Out of range'
+                              }
+                              color={getStatusColor(
+                                plantStatus.temperature.value,
+                                speciesData.idealConditions.temperature.min,
+                                speciesData.idealConditions.temperature.max
+                              )}
+                              size="small"
+                              sx={{ mt: 1 }}
+                            />
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
 
-                <Grid item xs={12} md={4}>
-                  <Card>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        <WaterDrop color="primary" sx={{ mr: 1, fontSize: 32 }} />
-                        <Typography variant="h6">Air Moisture</Typography>
-                      </Box>
-                      <Typography variant="h4" gutterBottom>
-                        {plant.latestStatus.airMoisture}%
-                      </Typography>
-                      {speciesData?.idealConditions && (
-                        <>
-                          <Typography variant="body2" color="text.secondary">
-                            Ideal: {speciesData.idealConditions.airMoisture.min}% - {speciesData.idealConditions.airMoisture.max}%
-                          </Typography>
-                          <Chip
-                            label={
-                              plant.latestStatus.airMoisture >= speciesData.idealConditions.airMoisture.min &&
-                              plant.latestStatus.airMoisture <= speciesData.idealConditions.airMoisture.max
-                                ? 'Optimal'
-                                : 'Out of range'
-                            }
-                            color={getStatusColor(
-                              plant.latestStatus.airMoisture,
-                              speciesData.idealConditions.airMoisture.min,
-                              speciesData.idealConditions.airMoisture.max
-                            )}
-                            size="small"
-                            sx={{ mt: 1 }}
-                          />
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                </Grid>
+                {plantStatus.airMoisture && (
+                  <Grid item xs={12} md={4}>
+                    <Card>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <WaterDrop color="primary" sx={{ mr: 1, fontSize: 32 }} />
+                          <Typography variant="h6">Air Moisture</Typography>
+                        </Box>
+                        <Typography variant="h4" gutterBottom>
+                          {plantStatus.airMoisture.value}{plantStatus.airMoisture.unit || '%'}
+                        </Typography>
+                        {speciesData?.idealConditions && (
+                          <>
+                            <Typography variant="body2" color="text.secondary">
+                              Ideal: {speciesData.idealConditions.airMoisture.min}% - {speciesData.idealConditions.airMoisture.max}%
+                            </Typography>
+                            <Chip
+                              label={
+                                plantStatus.airMoisture.value >= speciesData.idealConditions.airMoisture.min &&
+                                plantStatus.airMoisture.value <= speciesData.idealConditions.airMoisture.max
+                                  ? 'Optimal'
+                                  : 'Out of range'
+                              }
+                              color={getStatusColor(
+                                plantStatus.airMoisture.value,
+                                speciesData.idealConditions.airMoisture.min,
+                                speciesData.idealConditions.airMoisture.max
+                              )}
+                              size="small"
+                              sx={{ mt: 1 }}
+                            />
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
 
-                <Grid item xs={12} md={4}>
-                  <Card>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        <Grass color="success" sx={{ mr: 1, fontSize: 32 }} />
-                        <Typography variant="h6">Ground Moisture</Typography>
-                      </Box>
-                      <Typography variant="h4" gutterBottom>
-                        {plant.latestStatus.groundMoisture}%
-                      </Typography>
-                      {speciesData?.idealConditions && (
-                        <>
-                          <Typography variant="body2" color="text.secondary">
-                            Ideal: {speciesData.idealConditions.groundMoisture.min}% - {speciesData.idealConditions.groundMoisture.max}%
-                          </Typography>
-                          <Chip
-                            label={
-                              plant.latestStatus.groundMoisture >= speciesData.idealConditions.groundMoisture.min &&
-                              plant.latestStatus.groundMoisture <= speciesData.idealConditions.groundMoisture.max
-                                ? 'Optimal'
-                                : 'Out of range'
-                            }
-                            color={getStatusColor(
-                              plant.latestStatus.groundMoisture,
-                              speciesData.idealConditions.groundMoisture.min,
-                              speciesData.idealConditions.groundMoisture.max
-                            )}
-                            size="small"
-                            sx={{ mt: 1 }}
-                          />
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                </Grid>
+                {plantStatus.groundMoisture && (
+                  <Grid item xs={12} md={4}>
+                    <Card>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <Grass color="success" sx={{ mr: 1, fontSize: 32 }} />
+                          <Typography variant="h6">Ground Moisture</Typography>
+                        </Box>
+                        <Typography variant="h4" gutterBottom>
+                          {plantStatus.groundMoisture.value}{plantStatus.groundMoisture.unit || '%'}
+                        </Typography>
+                        {speciesData?.idealConditions && (
+                          <>
+                            <Typography variant="body2" color="text.secondary">
+                              Ideal: {speciesData.idealConditions.groundMoisture.min}% - {speciesData.idealConditions.groundMoisture.max}%
+                            </Typography>
+                            <Chip
+                              label={
+                                plantStatus.groundMoisture.value >= speciesData.idealConditions.groundMoisture.min &&
+                                plantStatus.groundMoisture.value <= speciesData.idealConditions.groundMoisture.max
+                                  ? 'Optimal'
+                                  : 'Out of range'
+                              }
+                              color={getStatusColor(
+                                plantStatus.groundMoisture.value,
+                                speciesData.idealConditions.groundMoisture.min,
+                                speciesData.idealConditions.groundMoisture.max
+                              )}
+                              size="small"
+                              sx={{ mt: 1 }}
+                            />
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
               </Grid>
             ) : (
               <Paper sx={{ p: 4, textAlign: 'center' }}>

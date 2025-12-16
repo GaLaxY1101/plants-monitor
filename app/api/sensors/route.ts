@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import connectToDb from '@/lib/db';
+import Sensor from '@/models/Sensor';
 import Plant from '@/models/Plant';
 import { SensorLog } from '@/models/SenserLog';
 
@@ -7,32 +8,30 @@ export async function POST(req: Request) {
   await connectToDb();
 
   try {
-    const { plantId, temperature, airMoisture, groundMoisture } = await req.json();
+    // Sensors authenticate using deviceId and send a single reading value
+    const { deviceId, value, unit } = await req.json();
 
-    if (!plantId) {
-      return NextResponse.json({ message: 'Plant ID required' }, { status: 400 });
+    if (!deviceId || value === undefined) {
+      return NextResponse.json({ message: 'Device ID and value required' }, { status: 400 });
     }
 
-    // 1. Find Plant
-    const plant = await Plant.findById(plantId);
+    // 1. Find Sensor by deviceId
+    const sensor = await Sensor.findOne({ deviceId }).populate('plantId');
+    if (!sensor) {
+      return NextResponse.json({ message: 'Sensor not found' }, { status: 404 });
+    }
+
+    // 2. Get associated plant
+    const plant = await Plant.findById(sensor.plantId);
     if (!plant) {
-      return NextResponse.json({ message: 'Plant not found' }, { status: 404 });
+      return NextResponse.json({ message: 'Plant not found for this sensor' }, { status: 404 });
     }
 
     const now = new Date();
 
-    // 2. Update "Real-time" status on the plant itself
-    plant.latestStatus = {
-      temperature,
-      airMoisture,
-      groundMoisture,
-      timestamp: now
-    };
-    await plant.save();
-
     // 3. Logic: Should we save to History (SensorLog)?
-    // Get the most recent log for this plant
-    const lastLog = await SensorLog.findOne({ 'metadata.plantId': plantId })
+    // Get the most recent log for this sensor
+    const lastLog = await SensorLog.findOne({ 'metadata.sensorId': sensor._id })
       .sort({ timestamp: -1 });
 
     const oneHour = 60 * 60 * 1000;
@@ -42,11 +41,13 @@ export async function POST(req: Request) {
     if (shouldSaveHistory) {
       await SensorLog.create({
         timestamp: now,
-        metadata: { plantId: plantId },
+        metadata: { 
+          sensorId: sensor._id,
+          plantId: plant._id 
+        },
         readings: {
-          temperature,
-          airMoisture,
-          groundMoisture
+          value,
+          unit: unit || getDefaultUnit(sensor.type),
         }
       });
       return NextResponse.json({ message: 'Status updated & Logged to History' });
@@ -58,4 +59,17 @@ export async function POST(req: Request) {
     console.error(error);
     return NextResponse.json({ message: 'Server Error' }, { status: 500 });
   }
+}
+
+// Helper function to get default unit for sensor type
+function getDefaultUnit(sensorType: string): string {
+  const unitMap: Record<string, string> = {
+    temperature: '°C',
+    airMoisture: '%',
+    groundMoisture: '%',
+    pressure: 'Pa',
+    light: 'lux',
+    ph: 'pH',
+  };
+  return unitMap[sensorType] || '';
 }

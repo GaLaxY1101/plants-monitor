@@ -3,12 +3,13 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface ISensorLog extends Document {
   timestamp: Date;
   metadata: {
-    plantId: mongoose.Types.ObjectId;
+    sensorId: mongoose.Types.ObjectId; // Sensor that generated this reading
+    plantId?: mongoose.Types.ObjectId; // Plant being monitored (for querying)
   };
+  // Flexible readings - each sensor type measures different things
   readings: {
-    temperature: number;
-    airMoisture: number;
-    groundMoisture: number;
+    value: number; // The actual measurement value
+    unit?: string; // Unit of measurement (e.g., '°C', '%', 'Pa', 'lux', 'pH')
   };
 }
 
@@ -18,17 +19,20 @@ const SensorLogSchema = new Schema<ISensorLog>({
     required: true 
   },
   metadata: {
+    sensorId: { 
+      type: Schema.Types.ObjectId, 
+      ref: 'Sensor', 
+      required: true 
+    },
     plantId: { 
       type: Schema.Types.ObjectId, 
-      ref: 'Plant', 
-      required: true 
+      ref: 'Plant',
     },
     location: String
   },
   readings: {
-    temperature: Number,
-    airMoisture: Number,
-    groundMoisture: Number,
+    value: { type: Number, required: true }, // The measurement value
+    unit: String, // Unit of measurement
   }
 }, {
   // TIMESERIES
