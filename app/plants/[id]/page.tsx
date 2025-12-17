@@ -462,7 +462,6 @@ export default function PlantDashboardPage() {
   const getActionLabel = (action: string, sensorType?: string): string => {
     switch (action) {
       case 'watering':
-        // For air moisture, use "Water air" instead of "Water the plant"
         if (sensorType === 'airMoisture') {
           return 'Water air';
         }

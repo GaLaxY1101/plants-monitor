@@ -106,10 +106,7 @@ async function populateLogs() {
       return;
     }
 
-    // Calculate previous day range (24 hours ago to now)
     const now = new Date();
-    
-    // Generate logs every hour for the past 24 hours
     const hoursToGenerate = 24;
     
     let totalLogsCreated = 0;
@@ -117,7 +114,6 @@ async function populateLogs() {
     for (const plant of plants) {
       console.log(`\nProcessing plant: ${plant.nickname} (${plant._id})`);
       
-      // Get sensors for this plant
       const sensors = await fetchWithAuth(`${API_BASE}/api/plants/${plant._id}/sensors`);
       console.log(`  Found ${sensors.length} sensors`);
 
@@ -129,7 +125,6 @@ async function populateLogs() {
       for (const sensor of sensors) {
         console.log(`  Processing sensor: ${sensor.name} (${sensor.type})`);
         
-        // Get the latest log to use as base value (if exists)
         let baseValue;
         try {
           const existingLogs = await fetchWithAuth(`${API_BASE}/api/sensors/${sensor._id}/logs?limit=1`);
@@ -137,12 +132,10 @@ async function populateLogs() {
             baseValue = existingLogs.logs[0].readings.value;
           }
         } catch (err) {
-          // No existing logs, use default
         }
 
         let sensorLogsCreated = 0;
         
-        // Generate logs for each hour
         for (let hourOffset = hoursToGenerate - 1; hourOffset >= 0; hourOffset--) {
           const logTime = new Date(now);
           logTime.setHours(logTime.getHours() - hourOffset);

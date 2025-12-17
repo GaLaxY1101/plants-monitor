@@ -1,4 +1,3 @@
-// Script to create a demo plant showing specific prediction scenarios
 // Usage: node scripts/create-demo-plant.js
 
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2OTQxMjAxNGE5YzY2NzkxY2Y0MTFjZjAiLCJpYXQiOjE3NjU4ODIwNTAsImV4cCI6MTc2ODQ3NDA1MH0.aL2JJrh6jTCoE00CY3yHZBAMI9IHlL6o__lh_LvFyRI';
@@ -92,7 +91,6 @@ async function createDemoPlant() {
     const tempSensor = createdSensors.find(s => s.type === 'temperature');
     const soilSensor = createdSensors.find(s => s.type === 'groundMoisture');
     
-    // Get ideal ranges
     const tempMin = selectedSpecies.idealConditions.temperature.min;
     const tempMax = selectedSpecies.idealConditions.temperature.max;
     const tempMid = (tempMin + tempMax) / 2;
@@ -103,15 +101,13 @@ async function createDemoPlant() {
     
     console.log('\nGenerating sensor logs with specific trends...');
     const now = new Date();
-    const hoursToGenerate = 72; // 3 days
+    const hoursToGenerate = 72;
     
-    // Scenario 2a: Temperature - Within range, trend moving UP (will go above max)
-    // Start 3 days ago below midpoint, trend UP, currently near max, will exceed soon
     console.log('\n  Scenario 2a: Temperature - Within range, trending UP');
-    const tempTargetHours = 20; // Will exceed max in 20 hours
-    const tempCurrentValue = tempMax - 1; // Currently 1°C below max (within range)
-    const tempHourlyChange = (tempMax - tempCurrentValue + 1) / tempTargetHours; // Calculate hourly change
-    const tempStartValue = tempCurrentValue - (hoursToGenerate * tempHourlyChange); // Value 3 days ago
+    const tempTargetHours = 20;
+    const tempCurrentValue = tempMax - 1;
+    const tempHourlyChange = (tempMax - tempCurrentValue + 1) / tempTargetHours;
+    const tempStartValue = tempCurrentValue - (hoursToGenerate * tempHourlyChange);
     
     let tempLogsCreated = 0;
     for (let hourOffset = hoursToGenerate - 1; hourOffset >= 0; hourOffset--) {
@@ -120,7 +116,6 @@ async function createDemoPlant() {
       logTime.setMinutes(Math.floor(Math.random() * 60));
       logTime.setSeconds(Math.floor(Math.random() * 60));
       
-      // Calculate value: start value + (hours from start * hourly change)
       const hoursFromStart = hoursToGenerate - 1 - hourOffset;
       const value = tempStartValue + (hoursFromStart * tempHourlyChange);
       
@@ -139,13 +134,11 @@ async function createDemoPlant() {
     console.log(`    Created ${tempLogsCreated} logs. Current: ${tempFinalValue.toFixed(1)}°C (ideal: ${tempMin}-${tempMax}°C), Trend: +${tempHourlyChange.toFixed(3)}/hour`);
     console.log(`    Expected: Scheduled cooling in ~${tempTargetHours} hours`);
     
-    // Scenario 2b: Ground Moisture - Within range, trend moving DOWN (will go below min)
-    // Start 3 days ago above midpoint, trend DOWN, currently near min, will go below soon
     console.log('\n  Scenario 2b: Ground Moisture - Within range, trending DOWN');
-    const soilTargetHours = 18; // Will go below min in 18 hours
-    const soilCurrentValue = soilMin + 2; // Currently 2% above min (within range)
-    const soilHourlyChangeDown = -(soilCurrentValue - soilMin + 1) / soilTargetHours; // Negative change
-    const soilStartValue = soilCurrentValue - (hoursToGenerate * soilHourlyChangeDown); // Value 3 days ago
+    const soilTargetHours = 18;
+    const soilCurrentValue = soilMin + 2;
+    const soilHourlyChangeDown = -(soilCurrentValue - soilMin + 1) / soilTargetHours;
+    const soilStartValue = soilCurrentValue - (hoursToGenerate * soilHourlyChangeDown);
     
     let soilLogsCreated = 0;
     for (let hourOffset = hoursToGenerate - 1; hourOffset >= 0; hourOffset--) {
@@ -172,8 +165,6 @@ async function createDemoPlant() {
     console.log(`    Created ${soilLogsCreated} logs. Current: ${soilFinalValue.toFixed(1)}% (ideal: ${soilMin}-${soilMax}%), Trend: ${soilHourlyChangeDown.toFixed(3)}/hour`);
     console.log(`    Expected: Scheduled watering in ~${soilTargetHours} hours`);
     
-    // Scenario 3: Create another sensor or use airMoisture for "out of range, trending towards"
-    // Let's add airMoisture sensor for this scenario
     console.log('\n  Creating Air Moisture sensor for Scenario 3...');
     const airSensorData = await postWithAuth(`${API_BASE}/api/sensors/manage`, {
       deviceId: `AIR-DEMO-${Date.now()}`,
@@ -184,14 +175,13 @@ async function createDemoPlant() {
     });
     console.log(`  ✅ Created sensor: ${airSensorData.name}`);
     
-    // Scenario 3: Air Moisture - Below min, trend moving UP (will reach within 48 hours)
     console.log('\n  Scenario 3: Air Moisture - Below min, trending UP');
     const airMin = selectedSpecies.idealConditions.airMoisture.min;
     const airMax = selectedSpecies.idealConditions.airMoisture.max;
-    const airTargetHours = 25; // Will reach min in 25 hours (within 48h limit)
-    const airCurrentValue = airMin - 3; // Currently 3% below minimum
-    const airHourlyChangeUp = (airMin - airCurrentValue + 1) / airTargetHours; // Positive change
-    const airStartValue = airCurrentValue - (hoursToGenerate * airHourlyChangeUp); // Value 3 days ago (even lower)
+    const airTargetHours = 25;
+    const airCurrentValue = airMin - 3;
+    const airHourlyChangeUp = (airMin - airCurrentValue + 1) / airTargetHours;
+    const airStartValue = airCurrentValue - (hoursToGenerate * airHourlyChangeUp);
     
     let airLogsCreated = 0;
     for (let hourOffset = hoursToGenerate - 1; hourOffset >= 0; hourOffset--) {

@@ -1,8 +1,5 @@
-// Prediction service for plant monitoring
-// Based on analyzing sensor data trends from the last 3 days
-
-const PREVENT_MARGIN_HOURS = 1.0; // Hours before threshold to take action
-const OVERSHOOT_MARGIN_HOURS = 1.0; // Hours after threshold to continue action
+const PREVENT_MARGIN_HOURS = 12.0;
+const OVERSHOOT_MARGIN_HOURS = 1.0;
 
 export interface PredictionInfo {
   status: 'immediate' | 'scheduled' | 'no_data' | 'no_trend' | 'no_reach' | 'will_not_reach';
@@ -28,16 +25,9 @@ export interface SensorDataPoint {
   value: number;
 }
 
-/**
- * Check if value is within ideal range
- */
 function isWithinRange(value: number, min: number, max: number): boolean {
   return value >= min && value <= max;
 }
-
-/**
- * Get action type based on sensor type and current value vs ideal range
- */
 function getActionType(
   sensorType: 'groundMoisture' | 'temperature' | 'airMoisture',
   currentValue: number,
@@ -45,14 +35,14 @@ function getActionType(
   max: number
 ): 'watering' | 'heating' | 'cooling' | 'reduceWatering' | 'none' {
   if (isWithinRange(currentValue, min, max)) {
-    return 'none'; // Value is within ideal range
+    return 'none';
   }
 
   if (sensorType === 'groundMoisture') {
     if (currentValue < min) {
       return 'watering';
     } else if (currentValue > max) {
-      return 'reduceWatering'; // Too much moisture - reduce watering
+      return 'reduceWatering';
     }
     return 'none';
   }
@@ -66,16 +56,12 @@ function getActionType(
   }
 
   if (sensorType === 'airMoisture') {
-    // Air moisture typically doesn't require active intervention, but could be noted
     return 'none';
   }
 
   return 'none';
 }
 
-/**
- * Determine which threshold (min or max) we need to reach
- */
 function getTargetThreshold(
   currentValue: number,
   min: number,
@@ -83,7 +69,6 @@ function getTargetThreshold(
   hourChange: number
 ): { threshold: number; type: 'min' | 'max' | 'none' } {
   if (isWithinRange(currentValue, min, max)) {
-    // If within range, check if trend will take us out
     if (hourChange < 0 && currentValue - Math.abs(hourChange) * 24 < min) {
       return { threshold: min, type: 'min' };
     }
@@ -104,11 +89,6 @@ function getTargetThreshold(
   return { threshold: 0, type: 'none' };
 }
 
-/**
- * Aggregate sensor data points into daily averages
- * Returns array of daily averages for the last 3 days
- * Handles missing data by using interpolation and extrapolation
- */
 function aggregateToDailyAverages(
   dataPoints: SensorDataPoint[],
   daysBack: number = 3
@@ -120,7 +100,6 @@ function aggregateToDailyAverages(
   const now = new Date();
   const dailyAverages: { [key: string]: { sum: number; count: number } } = {};
 
-  // Initialize days
   for (let i = 0; i < daysBack; i++) {
     const date = new Date(now);
     date.setDate(date.getDate() - i);
@@ -128,7 +107,6 @@ function aggregateToDailyAverages(
     dailyAverages[dayKey] = { sum: 0, count: 0 };
   }
 
-  // Aggregate data points by day
   for (const point of dataPoints) {
     const dayKey = point.timestamp.toISOString().split('T')[0];
     if (dailyAverages[dayKey]) {
@@ -137,7 +115,6 @@ function aggregateToDailyAverages(
     }
   }
 
-  // Calculate averages and return in chronological order (oldest first)
   const result: number[] = [];
   const daysWithData: number[] = [];
   
@@ -148,19 +125,14 @@ function aggregateToDailyAverages(
     const dayData = dailyAverages[dayKey];
     
     if (dayData.count > 0) {
-      // We have data for this day
       const avg = dayData.sum / dayData.count;
       result.push(avg);
       daysWithData.push(i);
     } else {
-      // No data for this day - need to estimate
       let estimatedValue: number | null = null;
-      
-      // Try interpolation: if we have data before and after, interpolate
       let beforeValue: number | null = null;
       let afterValue: number | null = null;
       
-      // Look for data before this day
       for (let j = i + 1; j < daysBack; j++) {
         const beforeDate = new Date(now);
         beforeDate.setDate(beforeDate.getDate() - j);
@@ -171,7 +143,6 @@ function aggregateToDailyAverages(
         }
       }
       
-      // Look for data after this day
       for (let j = i - 1; j >= 0; j--) {
         const afterDate = new Date(now);
         afterDate.setDate(afterDate.getDate() - j);
@@ -182,20 +153,15 @@ function aggregateToDailyAverages(
         }
       }
       
-      // Interpolate if we have both before and after
       if (beforeValue !== null && afterValue !== null) {
         estimatedValue = (beforeValue + afterValue) / 2;
       } else if (beforeValue !== null) {
-        // Extrapolate backward: use the previous value
         estimatedValue = beforeValue;
       } else if (afterValue !== null) {
-        // Extrapolate forward: use the next value
         estimatedValue = afterValue;
       } else if (result.length > 0) {
-        // Use the last calculated value (most recent)
         estimatedValue = result[result.length - 1];
       } else {
-        // Use overall average as last resort
         estimatedValue = dataPoints.reduce((sum, p) => sum + p.value, 0) / dataPoints.length;
       }
       
@@ -203,7 +169,6 @@ function aggregateToDailyAverages(
     }
   }
 
-  // Determine data quality
   let dataQuality: 'good' | 'partial' | 'insufficient';
   if (daysWithData.length >= 3) {
     dataQuality = 'good';
@@ -216,9 +181,6 @@ function aggregateToDailyAverages(
   return { values: result, dataQuality };
 }
 
-/**
- * Compute forecast and action recommendation based on sensor data trends
- */
 export function computeForecastAndAction(
   dataPoints: SensorDataPoint[],
   idealMin: number,
@@ -228,7 +190,6 @@ export function computeForecastAndAction(
 ): { readableText: string; info: PredictionInfo } {
   const now = new Date();
   
-  // Aggregate to daily averages
   const { values: dailyValues, dataQuality } = aggregateToDailyAverages(dataPoints, 3);
   
   if (dataQuality === 'insufficient') {
@@ -256,13 +217,10 @@ export function computeForecastAndAction(
 
   if (dailyValues.length < 3) {
     const text = `Limited data available for ${sensorName}. Predictions may be less accurate.`;
-    // Still try to make predictions with available data
   }
 
   const [dayBeforeYesterday, yesterday, todayAvg] = dailyValues;
   
-  // Get the most recent reading as the current value (not daily average)
-  // Sort dataPoints by timestamp to get the most recent
   const sortedDataPoints = [...dataPoints].sort((a, b) => 
     b.timestamp.getTime() - a.timestamp.getTime()
   );
@@ -271,13 +229,11 @@ export function computeForecastAndAction(
     : todayAvg;
   const currentValue = mostRecentReading;
   
-  // Calculate trends using daily averages for trend analysis
   const diff1 = yesterday - dayBeforeYesterday;
   const diff2 = todayAvg - yesterday;
   const avgDayChange = (diff1 + diff2) / 2.0;
   const hourChange = avgDayChange / 24.0;
 
-  // Determine which threshold we're targeting (min or max) based on current value and trend
   let { threshold, type: thresholdType } = getTargetThreshold(
     currentValue,
     idealMin,
@@ -285,44 +241,38 @@ export function computeForecastAndAction(
     hourChange
   );
   
-  // Determine action based on threshold being approached (not just current value)
-  // This is important for Case 2 where we're within range but trending out
   let action: 'watering' | 'heating' | 'cooling' | 'reduceWatering' | 'none';
   if (thresholdType === 'min') {
-    // Approaching minimum threshold - need to increase value
     if (sensorType === 'groundMoisture') {
       action = 'watering';
     } else if (sensorType === 'temperature') {
       action = 'heating';
     } else if (sensorType === 'airMoisture') {
-      action = 'watering'; // Increase humidity
+      action = 'watering';
     } else {
       action = 'none';
     }
   } else if (thresholdType === 'max') {
-    // Approaching maximum threshold - need to decrease value
     if (sensorType === 'groundMoisture') {
       action = 'reduceWatering';
     } else if (sensorType === 'temperature') {
       action = 'cooling';
     } else if (sensorType === 'airMoisture') {
-      action = 'cooling'; // Decrease humidity (ventilation)
+      action = 'cooling';
     } else {
       action = 'none';
     }
   } else {
-    // No threshold being approached - use current value to determine action
     action = getActionType(sensorType, currentValue, idealMin, idealMax);
   }
   
-  // Calculate delta based on threshold
   let delta: number;
   if (thresholdType === 'min') {
-    delta = idealMin - currentValue; // Positive if below min
+    delta = idealMin - currentValue;
   } else if (thresholdType === 'max') {
-    delta = currentValue - idealMax; // Positive if above max
+    delta = currentValue - idealMax;
   } else {
-    delta = 0; // Within range
+    delta = 0;
   }
 
   const info: PredictionInfo = {
@@ -342,7 +292,6 @@ export function computeForecastAndAction(
     readableText: '',
   };
 
-  // Case 1: No change (hourChange == 0)
   if (Math.abs(hourChange) < 1e-9) {
     if (!isWithinRange(currentValue, idealMin, idealMax) && action !== 'none') {
       const text = `${sensorName}: Current value is ${currentValue.toFixed(2)}, ideal range is ${idealMin.toFixed(2)} - ${idealMax.toFixed(2)}.\n` +
@@ -366,39 +315,32 @@ export function computeForecastAndAction(
   let marginHours = PREVENT_MARGIN_HOURS;
   let willReach = false;
 
-  // Case 2: Current value is within range, but trend might take it out
   if (isWithinRange(currentValue, idealMin, idealMax)) {
-    // Check if trend will take us out of range
     if (hourChange < 0 && currentValue + hourChange * 24 < idealMin) {
-      // Moving down, will go below min
       willReach = true;
       threshold = idealMin;
       thresholdType = 'min';
       delta = idealMin - currentValue;
-      // Update action based on threshold being approached
       if (sensorType === 'groundMoisture') {
         action = 'watering';
       } else if (sensorType === 'temperature') {
         action = 'heating';
       } else if (sensorType === 'airMoisture') {
-        action = 'watering'; // Increase humidity
+        action = 'watering';
       }
     } else if (hourChange > 0 && currentValue + hourChange * 24 > idealMax) {
-      // Moving up, will go above max
       willReach = true;
       threshold = idealMax;
       thresholdType = 'max';
       delta = currentValue - idealMax;
-      // Update action based on threshold being approached
       if (sensorType === 'groundMoisture') {
         action = 'reduceWatering';
       } else if (sensorType === 'temperature') {
         action = 'cooling';
       } else if (sensorType === 'airMoisture') {
-        action = 'cooling'; // Decrease humidity (ventilation)
+        action = 'cooling';
       }
     } else {
-      // Staying within range
       const text = `${sensorName}: Current value is ${currentValue.toFixed(2)}, ideal range is ${idealMin.toFixed(2)} - ${idealMax.toFixed(2)}.\n` +
         'Trend is maintaining ideal range — no action required.';
       info.status = 'no_trend';
@@ -407,13 +349,8 @@ export function computeForecastAndAction(
       return { readableText: text, info };
     }
   }
-  // Case 3: Current value is OUT of range
   else {
-    // If value is out of range, ALWAYS recommend immediate action
-    // Scheduled actions are only for preventive maintenance (within range, trending out)
-    
     if (thresholdType === 'min') {
-      // Below minimum - immediate action needed
       const actionName = action === 'watering' ? 'watering' : 
                         action === 'heating' ? 'heating' : 
                         action === 'cooling' ? 'cooling' :
@@ -431,7 +368,6 @@ export function computeForecastAndAction(
       info.readableText = text;
       return { readableText: text, info };
     } else if (thresholdType === 'max') {
-      // Above maximum - immediate action needed
       const actionName = action === 'cooling' ? 'cooling' : 
                         action === 'reduceWatering' ? 'reduce watering' : 'action';
       const trendNote = hourChange < 0 
@@ -449,22 +385,16 @@ export function computeForecastAndAction(
     }
   }
 
-  // Case 4: Will reach threshold
   if (willReach && thresholdType !== 'none') {
-    // OVERSHOOT scenarios - we're moving towards threshold
     if (thresholdType === 'max' && hourChange < 0) {
-      // Moving down towards max from above
       marginHours = -OVERSHOOT_MARGIN_HOURS;
     } else if (thresholdType === 'min' && hourChange > 0) {
-      // Moving up towards min from below
       marginHours = -OVERSHOOT_MARGIN_HOURS;
     } else {
-      // PREVENT scenario
       marginHours = PREVENT_MARGIN_HOURS;
     }
   }
 
-  // Calculate time to threshold
   if (!willReach) {
     const text = `${sensorName}: Current value is ${currentValue.toFixed(2)}, ideal range is ${idealMin.toFixed(2)} - ${idealMax.toFixed(2)}.\n` +
       `Trend: ${hourChange.toFixed(4)} per hour. No predicted threshold reach.`;
@@ -483,7 +413,6 @@ export function computeForecastAndAction(
 
   const actionInHours = Math.max(0, hoursLeft - marginHours);
 
-  // Determine status
   if (actionInHours <= 0) {
     info.status = 'immediate';
     info.actionTime = now;
@@ -496,11 +425,9 @@ export function computeForecastAndAction(
   info.action = action;
   info.actionInHours = actionInHours;
 
-  // Build readable text
   const readable: string[] = [];
   readable.push(`${sensorName}:`);
   
-  // Add data quality warning if needed
   if (dataQuality === 'partial') {
     readable.push('⚠️ Note: Limited historical data available. Some values were estimated.');
   }

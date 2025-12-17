@@ -7,7 +7,6 @@ import PlantSpecies from '@/models/PlantSpecies';
 import { getUserId } from '@/lib/auth';
 import { computeForecastAndAction, SensorDataPoint } from '@/lib/predictions';
 
-// GET: Get predictions and recommendations for a plant based on last 3 days of sensor data
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> | { id: string } }
@@ -23,7 +22,6 @@ export async function GET(
     const resolvedParams = await Promise.resolve(params);
     const plantId = resolvedParams.id;
 
-    // Verify plant exists and belongs to user
     const plant = await Plant.findOne({ _id: plantId, ownerId: userId })
       .populate('species');
     
@@ -39,16 +37,13 @@ export async function GET(
       );
     }
 
-    // Get all sensors for this plant
     const sensors = await Sensor.find({ plantId });
 
-    // Get sensor logs from the last 3 days
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
     const predictions: Record<string, any> = {};
 
-    // Process only relevant sensor types (groundMoisture, temperature, airMoisture)
     const relevantSensorTypes: Array<'groundMoisture' | 'temperature' | 'airMoisture'> = [
       'groundMoisture',
       'temperature',
@@ -58,25 +53,21 @@ export async function GET(
     for (const sensor of sensors) {
       const sensorType = sensor.type;
       
-      // Skip sensors that are not in the relevant types
       if (!relevantSensorTypes.includes(sensorType as any)) {
         continue;
       }
       
-      // Get ideal conditions for this sensor type (if available in species)
       const idealConditions = species.idealConditions?.[sensorType as keyof typeof species.idealConditions] as { min: number; max: number } | undefined;
       
-      // If no ideal conditions defined, skip this sensor
       if (!idealConditions) {
         continue;
       }
 
-      // Fetch sensor logs from last 3 days
       const logs = await SensorLog.find({
         'metadata.sensorId': sensor._id,
         timestamp: { $gte: threeDaysAgo },
       })
-        .sort({ timestamp: 1 }) // Oldest first
+        .sort({ timestamp: 1 })
         .lean();
 
       if (logs.length === 0) {
@@ -87,16 +78,13 @@ export async function GET(
         continue;
       }
 
-      // Convert logs to SensorDataPoint format
       const dataPoints: SensorDataPoint[] = logs.map((log) => ({
         timestamp: new Date(log.timestamp),
         value: log.readings.value,
       }));
 
-      // Get sensor name for display
       const sensorName = sensor.name || `${sensorType} sensor`;
 
-      // Compute prediction
       const { readableText, info } = computeForecastAndAction(
         dataPoints,
         idealConditions.min,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import connectToDb from '@/lib/db';
 import Plant from '@/models/Plant';
+import PlantSpecies from '@/models/PlantSpecies'; 
 import Sensor from '@/models/Sensor';
 import { getUserId } from '@/lib/auth';
 
@@ -14,13 +15,18 @@ export async function GET(req: Request) {
   }
 
   try {
+  
     const plants = await Plant.find({ ownerId: userId })
       .populate('species')
       .sort({ createdAt: -1 });
       
     return NextResponse.json(plants);
-  } catch (error) {
-    return NextResponse.json({ message: 'Error fetching plants' }, { status: 500 });
+  } catch (error: any) {
+    console.error('Error fetching plants:', error);
+    return NextResponse.json({ 
+      message: 'Error fetching plants',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+    }, { status: 500 });
   }
 }
 

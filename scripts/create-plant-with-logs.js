@@ -152,7 +152,6 @@ async function createPlantWithLogs() {
     for (const sensor of createdSensors) {
       console.log(`  Processing sensor: ${sensor.name} (${sensor.type})`);
       
-      // Determine trend based on sensor type to create interesting recommendations
       let trend = 'normal';
       if (sensor.type === 'groundMoisture') {
         trend = 'low'; // Show watering recommendation
